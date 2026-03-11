@@ -1,0 +1,21 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.env.local
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Expo
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
