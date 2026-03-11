@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,73 +9,85 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/useAuth';
 import { usePlans } from '@/hooks/usePlans';
+import { useSaves } from '@/hooks/useSaves';
 import { PlanCard } from '@/components/PlanCard';
-import { Button } from '@/components/Button';
+import { InviteBanner } from '@/components/InviteBanner';
+import { EmptyState } from '@/components/EmptyState';
+import { SectionHeader } from '@/components/SectionHeader';
 import { Colors, Spacing, Typography, BorderRadius } from '@/constants';
 import type { Plan, PlanInvite } from '@/types';
 
 export default function HomeScreen() {
   const { user, profile } = useAuth();
   const { plans, pendingInvites, loading, refresh, respond } = usePlans(user?.id);
+  const { saves } = useSaves(user?.id);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
 
   const upcoming = plans
     .filter((p) => p.status === 'active' && p.scheduled_at)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
 
   const unscheduled = plans.filter((p) => p.status === 'active' && !p.scheduled_at);
+  const allPlans: Plan[] = [...upcoming, ...unscheduled];
 
-  function renderInviteBanner({ item }: { item: PlanInvite }) {
+  async function handleRespond(inviteId: string, status: 'accepted' | 'declined') {
+    setRespondingId(inviteId);
+    try {
+      await respond(inviteId, status);
+    } finally {
+      setRespondingId(null);
+    }
+  }
+
+  function renderEmptyState() {
+    if (saves.length === 0) {
+      return (
+        <EmptyState
+          emoji="🔖"
+          title="Start by saving something"
+          subtitle="Find a restaurant, event, or activity you want to do — then turn it into a real plan with friends."
+          actionLabel="Save something"
+          onAction={() => router.push('/save/new')}
+        />
+      );
+    }
     return (
-      <View style={styles.inviteBanner}>
-        <View style={styles.inviteInfo}>
-          <Text style={styles.inviteFrom}>
-            {(item.inviter as any)?.username ?? 'Someone'} invited you to
-          </Text>
-          <Text style={styles.inviteTitle} numberOfLines={1}>
-            {(item.plan as any)?.title ?? 'a plan'}
-          </Text>
-        </View>
-        <View style={styles.inviteActions}>
-          <TouchableOpacity
-            style={[styles.inviteBtn, styles.declineBtn]}
-            onPress={() => respond(item.id, 'declined')}
-          >
-            <Text style={styles.declineBtnText}>Skip</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.inviteBtn, styles.acceptBtn]}
-            onPress={() => respond(item.id, 'accepted')}
-          >
-            <Text style={styles.acceptBtnText}>I'm in!</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <EmptyState
+        emoji="📅"
+        title="No plans yet"
+        subtitle="You've saved some great ideas. Pick one and make it a real plan with friends."
+        actionLabel="Make a plan"
+        onAction={() => router.push('/plan/new')}
+        secondaryActionLabel="Browse saves"
+        onSecondaryAction={() => router.push('/(tabs)/saves')}
+      />
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>
-            Hey {profile?.username ?? 'there'} 👋
-          </Text>
-          <Text style={styles.subtitle}>Your upcoming plans</Text>
+          <Text style={styles.greeting}>Hey {profile?.username ?? 'there'} 👋</Text>
+          <Text style={styles.subtitle}>Your plans</Text>
         </View>
         <TouchableOpacity
-          style={styles.newPlanBtn}
+          style={styles.newBtn}
           onPress={() => router.push('/plan/new')}
+          activeOpacity={0.8}
         >
-          <Text style={styles.newPlanBtnText}>+ New Plan</Text>
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.newBtnText}>New plan</Text>
         </TouchableOpacity>
       </View>
 
       <FlatList
-        data={[...upcoming, ...unscheduled]}
+        data={allPlans}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
+        renderItem={({ item }: { item: Plan }) => (
           <PlanCard
             plan={item}
             currentUserId={user?.id ?? ''}
@@ -86,33 +98,28 @@ export default function HomeScreen() {
           <>
             {pendingInvites.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  Invites ({pendingInvites.length})
-                </Text>
-                {pendingInvites.map((invite) => renderInviteBanner({ item: invite }))}
+                <SectionHeader title="Invites" count={pendingInvites.length} />
+                {pendingInvites.map((invite: PlanInvite) => (
+                  <InviteBanner
+                    key={invite.id}
+                    invite={invite}
+                    loading={respondingId === invite.id}
+                    onAccept={() => handleRespond(invite.id, 'accepted')}
+                    onDecline={() => handleRespond(invite.id, 'declined')}
+                  />
+                ))}
               </View>
             )}
-            {plans.length > 0 && (
-              <Text style={styles.sectionTitle}>Upcoming</Text>
+            {allPlans.length > 0 && (
+              <SectionHeader
+                title={upcoming.length > 0 ? 'Upcoming' : 'Plans'}
+                count={allPlans.length}
+              />
             )}
           </>
         }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>📅</Text>
-            <Text style={styles.emptyTitle}>No plans yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Save something interesting, then turn it into a plan with friends.
-            </Text>
-            <Button
-              label="Browse your saves"
-              onPress={() => router.push('/(tabs)/saves')}
-              variant="secondary"
-              style={styles.emptyBtn}
-            />
-          </View>
-        }
-        contentContainerStyle={styles.list}
+        ListEmptyComponent={renderEmptyState()}
+        contentContainerStyle={[styles.list, allPlans.length === 0 && styles.listEmpty]}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={Colors.primary} />
         }
@@ -131,7 +138,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
     backgroundColor: Colors.background.primary,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
@@ -144,98 +152,29 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: Typography.sizes.sm,
     color: Colors.text.secondary,
-    marginTop: 2,
+    marginTop: 1,
   },
-  newPlanBtn: {
+  newBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: 9,
     borderRadius: BorderRadius.full,
   },
-  newPlanBtnText: {
+  newBtnText: {
     color: '#fff',
     fontWeight: Typography.weights.semibold,
     fontSize: Typography.sizes.sm,
   },
   list: {
     padding: Spacing.md,
+  },
+  listEmpty: {
     flexGrow: 1,
   },
   section: {
-    marginBottom: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.text.primary,
-    marginBottom: Spacing.sm,
-  },
-  inviteBanner: {
-    backgroundColor: Colors.primaryLight,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  inviteInfo: {
-    flex: 1,
-    marginRight: Spacing.sm,
-  },
-  inviteFrom: {
-    fontSize: Typography.sizes.xs,
-    color: Colors.primary,
-  },
-  inviteTitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.text.primary,
-  },
-  inviteActions: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  inviteBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-  },
-  declineBtn: {
-    backgroundColor: Colors.background.primary,
-  },
-  declineBtnText: {
-    color: Colors.text.secondary,
-    fontWeight: Typography.weights.medium,
-    fontSize: Typography.sizes.sm,
-  },
-  acceptBtn: {
-    backgroundColor: Colors.primary,
-  },
-  acceptBtnText: {
-    color: '#fff',
-    fontWeight: Typography.weights.semibold,
-    fontSize: Typography.sizes.sm,
-  },
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.xxl,
-  },
-  emptyEmoji: { fontSize: 64, marginBottom: Spacing.md },
-  emptyTitle: {
-    fontSize: Typography.sizes.xl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.text.primary,
-    marginBottom: Spacing.sm,
-  },
-  emptySubtitle: {
-    fontSize: Typography.sizes.md,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    paddingHorizontal: Spacing.xl,
     marginBottom: Spacing.lg,
   },
-  emptyBtn: { alignSelf: 'center' },
 });

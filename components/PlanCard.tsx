@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { Avatar } from './Avatar';
 import { Colors, Spacing, BorderRadius, Typography, CategoryEmoji } from '@/constants';
-import type { Plan } from '@/types';
+import type { Plan, Profile } from '@/types';
 
 interface PlanCardProps {
   plan: Plan;
@@ -9,50 +10,98 @@ interface PlanCardProps {
   onPress?: () => void;
 }
 
-function formatDate(iso: string | null): string {
+function shortDate(iso: string | null): string {
   if (!iso) return 'Date TBD';
-  return new Date(iso).toLocaleDateString('en-US', {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
+  });
+}
+
+function shortTime(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
   });
 }
 
+const INVITE_STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  pending:  { bg: '#FEF3C7', text: '#92400E', label: 'Pending' },
+  accepted: { bg: '#D1FAE5', text: '#065F46', label: 'Going ✓' },
+  declined: { bg: '#FEE2E2', text: '#991B1B', label: 'Declined' },
+};
+
 export function PlanCard({ plan, currentUserId, onPress }: PlanCardProps) {
-  const acceptedCount = plan.invites?.filter((i) => i.status === 'accepted').length ?? 0;
-  const totalInvited = plan.invites?.length ?? 0;
   const isCreator = plan.creator_id === currentUserId;
   const myInvite = plan.invites?.find((i) => i.invitee_id === currentUserId);
+  const goingInvites = plan.invites?.filter((i) => i.status === 'accepted') ?? [];
+  const goingCount = goingInvites.length + (isCreator ? 1 : 0);
+  const totalCount = (plan.invites?.length ?? 0) + 1; // +1 for creator
+
+  // Show up to 3 going avatars
+  const goingProfiles: Profile[] = [
+    ...(isCreator && plan.creator ? [plan.creator as Profile] : []),
+    ...goingInvites
+      .slice(0, 3)
+      .map((i) => i.invitee as Profile)
+      .filter(Boolean),
+  ].slice(0, 3);
+
+  const statusInfo =
+    !isCreator && myInvite ? INVITE_STATUS_STYLE[myInvite.status] : null;
 
   return (
-    <TouchableOpacity onPress={onPress} style={styles.card} activeOpacity={0.9}>
-      {plan.image_url ? (
-        <Image source={{ uri: plan.image_url }} style={styles.image} />
-      ) : (
-        <View style={[styles.image, styles.placeholder]}>
-          <Text style={styles.emoji}>{CategoryEmoji[plan.category]}</Text>
-        </View>
-      )}
+    <TouchableOpacity onPress={onPress} style={styles.card} activeOpacity={0.85}>
+      {/* Hero */}
+      <View style={styles.heroContainer}>
+        {plan.image_url ? (
+          <Image source={{ uri: plan.image_url }} style={styles.hero} />
+        ) : (
+          <View style={[styles.hero, styles.heroPlaceholder]}>
+            <Text style={styles.heroEmoji}>{CategoryEmoji[plan.category]}</Text>
+          </View>
+        )}
 
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.date}>{formatDate(plan.scheduled_at)}</Text>
-          {!isCreator && myInvite && (
-            <View style={[styles.badge, styles[`badge_${myInvite.status}`]]}>
-              <Text style={styles.badgeText}>{myInvite.status}</Text>
-            </View>
-          )}
+        {/* Date chip overlaid on hero */}
+        <View style={styles.dateBadge}>
+          <Text style={styles.dateBadgeText}>{shortDate(plan.scheduled_at)}</Text>
+          {shortTime(plan.scheduled_at) ? (
+            <Text style={styles.timeBadgeText}>{shortTime(plan.scheduled_at)}</Text>
+          ) : null}
         </View>
+
+        {/* My RSVP badge (top-right) */}
+        {statusInfo ? (
+          <View style={[styles.rsvpBadge, { backgroundColor: statusInfo.bg }]}>
+            <Text style={[styles.rsvpBadgeText, { color: statusInfo.text }]}>
+              {statusInfo.label}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Body */}
+      <View style={styles.body}>
         <Text style={styles.title} numberOfLines={2}>{plan.title}</Text>
+
         {plan.location ? (
           <Text style={styles.location} numberOfLines={1}>📍 {plan.location}</Text>
         ) : null}
+
+        {/* Footer: avatar stack + count */}
         <View style={styles.footer}>
-          <Text style={styles.attendees}>
-            {isCreator ? '👤 You + ' : ''}
-            {acceptedCount} / {totalInvited + (isCreator ? 0 : 1)} going
+          <View style={styles.avatarStack}>
+            {goingProfiles.map((p, i) => (
+              <View key={p.id} style={[styles.avatarWrap, { marginLeft: i === 0 ? 0 : -10 }]}>
+                <Avatar uri={p.avatar_url} name={p.full_name ?? p.username} size={26} />
+              </View>
+            ))}
+          </View>
+          <Text style={styles.goingText}>
+            {goingCount} / {totalCount} going
           </Text>
         </View>
       </View>
@@ -65,69 +114,91 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background.primary,
     borderRadius: BorderRadius.lg,
     marginBottom: Spacing.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
-    overflow: 'hidden',
   },
-  image: {
+  heroContainer: {
+    position: 'relative',
+  },
+  hero: {
     width: '100%',
-    height: 140,
+    height: 130,
   },
-  placeholder: {
+  heroPlaceholder: {
     backgroundColor: Colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emoji: {
-    fontSize: 48,
+  heroEmoji: {
+    fontSize: 44,
   },
-  content: {
-    padding: Spacing.md,
+  dateBadge: {
+    position: 'absolute',
+    bottom: Spacing.sm,
+    left: Spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
-  },
-  date: {
+  dateBadgeText: {
     fontSize: Typography.sizes.xs,
-    color: Colors.primary,
-    fontWeight: Typography.weights.semibold,
+    fontWeight: Typography.weights.bold,
+    color: '#fff',
   },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-  },
-  badge_pending: { backgroundColor: Colors.background.tertiary },
-  badge_accepted: { backgroundColor: '#D1FAE5' },
-  badge_declined: { backgroundColor: '#FEE2E2' },
-  badgeText: {
+  timeBadgeText: {
     fontSize: 10,
-    fontWeight: Typography.weights.semibold,
-    textTransform: 'capitalize',
-    color: Colors.text.secondary,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 1,
+  },
+  rsvpBadge: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+  },
+  rsvpBadgeText: {
+    fontSize: Typography.sizes.xs,
+    fontWeight: Typography.weights.bold,
+  },
+  body: {
+    padding: Spacing.md,
+    gap: 6,
   },
   title: {
     fontSize: Typography.sizes.lg,
-    fontWeight: Typography.weights.semibold,
+    fontWeight: Typography.weights.bold,
     color: Colors.text.primary,
-    marginBottom: Spacing.xs,
+    lineHeight: 24,
   },
   location: {
     fontSize: Typography.sizes.sm,
     color: Colors.text.secondary,
-    marginBottom: Spacing.sm,
   },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: 2,
   },
-  attendees: {
+  avatarStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatarWrap: {
+    borderWidth: 1.5,
+    borderColor: Colors.background.primary,
+    borderRadius: 99,
+  },
+  goingText: {
     fontSize: Typography.sizes.sm,
     color: Colors.text.secondary,
   },

@@ -1,25 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   Alert,
+  TextInput,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/useAuth';
 import { usePlans } from '@/hooks/usePlans';
 import { useSaves } from '@/hooks/useSaves';
 import { useFriends } from '@/hooks/useFriends';
+import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
 import { Avatar } from '@/components/Avatar';
-import { Colors, Spacing, BorderRadius, Typography, CategoryEmoji, CategoryLabel } from '@/constants';
+import { CategoryPicker } from '@/components/CategoryPicker';
+import { Colors, Spacing, BorderRadius, Typography } from '@/constants';
 import type { SaveCategory, Profile } from '@/types';
 
-const CATEGORIES: SaveCategory[] = ['restaurant', 'event', 'activity', 'other'];
+// Quick date presets
+const DATE_PRESETS = [
+  { label: 'Tonight', offset: 0, hour: 19 },
+  { label: 'This weekend', offset: 5, hour: 14 },  // next saturday
+  { label: 'Next week', offset: 7, hour: 19 },
+];
+
+function getPresetDate(offset: number, hour: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  d.setHours(hour, 0, 0, 0);
+  return d.toISOString();
+}
+
+function formatPreviewDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function NewPlanScreen() {
   const { user } = useAuth();
@@ -28,16 +53,19 @@ export default function NewPlanScreen() {
   const { friends } = useFriends(user?.id);
   const { saveId } = useLocalSearchParams<{ saveId?: string }>();
 
-  // Pre-fill from save if coming from saves tab
   const sourceS = saves.find((s) => s.id === saveId);
 
   const [title, setTitle] = useState(sourceS?.title ?? '');
   const [category, setCategory] = useState<SaveCategory>(sourceS?.category ?? 'restaurant');
   const [location, setLocation] = useState(sourceS?.location ?? '');
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null);
+  const [customDate, setCustomDate] = useState('');
   const [selectedFriends, setSelectedFriends] = useState<Profile[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Errors
+  const [titleError, setTitleError] = useState('');
+  const [friendError, setFriendError] = useState('');
 
   useEffect(() => {
     if (sourceS) {
@@ -48,6 +76,7 @@ export default function NewPlanScreen() {
   }, [sourceS?.id]);
 
   function toggleFriend(friend: Profile) {
+    setFriendError('');
     setSelectedFriends((prev) =>
       prev.find((f) => f.id === friend.id)
         ? prev.filter((f) => f.id !== friend.id)
@@ -55,28 +84,39 @@ export default function NewPlanScreen() {
     );
   }
 
+  function selectPreset(offset: number, hour: number) {
+    const iso = getPresetDate(offset, hour);
+    setScheduledAt(iso);
+    setCustomDate('');
+  }
+
+  function handleCustomDateChange(text: string) {
+    setCustomDate(text);
+    // Try parse as user types
+    if (text.length >= 10) {
+      const parsed = new Date(text);
+      if (!isNaN(parsed.getTime())) {
+        setScheduledAt(parsed.toISOString());
+      } else {
+        setScheduledAt(null);
+      }
+    } else {
+      setScheduledAt(null);
+    }
+  }
+
   async function handleCreate() {
+    let valid = true;
+
     if (!title.trim()) {
-      Alert.alert('Name required', 'Give the plan a name.');
-      return;
+      setTitleError('Give the plan a name');
+      valid = false;
     }
     if (selectedFriends.length === 0) {
-      Alert.alert('Invite someone', 'Add at least one friend to this plan.');
-      return;
+      setFriendError('Invite at least one friend');
+      valid = false;
     }
-
-    // Parse date + time into ISO string
-    let scheduled_at: string | undefined;
-    if (date.trim()) {
-      try {
-        const dt = time.trim() ? new Date(`${date}T${time}`) : new Date(date);
-        if (isNaN(dt.getTime())) throw new Error('bad date');
-        scheduled_at = dt.toISOString();
-      } catch {
-        Alert.alert('Invalid date', 'Use format: YYYY-MM-DD and HH:MM (optional)');
-        return;
-      }
-    }
+    if (!valid) return;
 
     setSaving(true);
     try {
@@ -84,7 +124,7 @@ export default function NewPlanScreen() {
         title: title.trim(),
         category,
         location: location.trim() || undefined,
-        scheduled_at,
+        scheduled_at: scheduledAt ?? undefined,
         save_id: saveId,
         invitee_ids: selectedFriends.map((f) => f.id),
       });
@@ -98,104 +138,152 @@ export default function NewPlanScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {sourceS && (
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Source save tag */}
+        {sourceS ? (
           <View style={styles.sourceTag}>
-            <Text style={styles.sourceTagText}>
-              📌 From your saves: {sourceS.title}
-            </Text>
+            <Ionicons name="bookmark" size={14} color={Colors.primary} />
+            <Text style={styles.sourceTagText}>From your saves: {sourceS.title}</Text>
           </View>
-        )}
+        ) : null}
 
-        <Text style={styles.label}>Plan name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Dinner at Nobu"
-          placeholderTextColor={Colors.text.tertiary}
+        {/* Plan name */}
+        <Input
+          label="What's the plan?"
+          placeholder="e.g. Dinner at Nobu, Hiking at Runyon..."
           value={title}
-          onChangeText={setTitle}
-          returnKeyType="next"
+          onChangeText={(t) => { setTitle(t); setTitleError(''); }}
+          error={titleError}
           autoFocus={!sourceS}
+          returnKeyType="next"
+          containerStyle={styles.field}
         />
 
-        <Text style={styles.label}>Category</Text>
-        <View style={styles.categoryRow}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[styles.categoryChip, category === cat && styles.categoryChipActive]}
-              onPress={() => setCategory(cat)}
-            >
-              <Text style={styles.categoryEmoji}>{CategoryEmoji[cat]}</Text>
-              <Text style={[styles.categoryText, category === cat && styles.categoryTextActive]}>
-                {CategoryLabel[cat]}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        {/* Category */}
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Category</Text>
+          <CategoryPicker value={category} onChange={setCategory} />
         </View>
 
-        <Text style={styles.label}>Location (optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Malibu, CA"
-          placeholderTextColor={Colors.text.tertiary}
+        {/* Location */}
+        <Input
+          label="Where? (optional)"
+          placeholder="e.g. Malibu, CA or leave blank"
           value={location}
           onChangeText={setLocation}
           returnKeyType="next"
+          containerStyle={styles.field}
         />
 
-        <Text style={styles.label}>Date (optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="YYYY-MM-DD (e.g. 2025-08-15)"
-          placeholderTextColor={Colors.text.tertiary}
-          value={date}
-          onChangeText={setDate}
-          returnKeyType="next"
-          keyboardType="numbers-and-punctuation"
-        />
+        {/* Date & time */}
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>When?</Text>
 
-        <Text style={styles.label}>Time (optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="HH:MM (e.g. 19:30)"
-          placeholderTextColor={Colors.text.tertiary}
-          value={time}
-          onChangeText={setTime}
-          returnKeyType="done"
-          keyboardType="numbers-and-punctuation"
-        />
-
-        <Text style={styles.label}>
-          Invite friends ({selectedFriends.length} selected)
-        </Text>
-        {friends.length === 0 ? (
-          <Text style={styles.noFriends}>
-            Add friends first in the Friends tab.
-          </Text>
-        ) : (
-          <View style={styles.friendsGrid}>
-            {friends.map((friend) => {
-              const selected = !!selectedFriends.find((f) => f.id === friend.id);
+          {/* Quick presets */}
+          <View style={styles.presetRow}>
+            {DATE_PRESETS.map((p) => {
+              const iso = getPresetDate(p.offset, p.hour);
+              const isSelected = scheduledAt === iso;
               return (
                 <TouchableOpacity
-                  key={friend.id}
-                  style={[styles.friendChip, selected && styles.friendChipSelected]}
-                  onPress={() => toggleFriend(friend)}
+                  key={p.label}
+                  style={[styles.presetChip, isSelected && styles.presetChipActive]}
+                  onPress={() => selectPreset(p.offset, p.hour)}
+                  activeOpacity={0.7}
                 >
-                  <Avatar uri={friend.avatar_url} name={friend.full_name ?? friend.username} size={32} />
-                  <Text style={[styles.friendChipText, selected && styles.friendChipTextSelected]}>
-                    {friend.username}
+                  <Text style={[styles.presetText, isSelected && styles.presetTextActive]}>
+                    {p.label}
                   </Text>
-                  {selected && <Text style={styles.checkmark}>✓</Text>}
                 </TouchableOpacity>
               );
             })}
           </View>
-        )}
+
+          {/* Custom date input */}
+          <View style={styles.customDateRow}>
+            <Ionicons name="calendar-outline" size={16} color={Colors.text.tertiary} />
+            <TextInput
+              style={styles.customDateInput}
+              placeholder="Or type a date: Oct 15, 7pm"
+              placeholderTextColor={Colors.text.tertiary}
+              value={customDate}
+              onChangeText={handleCustomDateChange}
+              returnKeyType="done"
+            />
+          </View>
+
+          {/* Parsed date preview */}
+          {scheduledAt ? (
+            <View style={styles.datePreview}>
+              <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
+              <Text style={styles.datePreviewText}>{formatPreviewDate(scheduledAt)}</Text>
+              <TouchableOpacity onPress={() => { setScheduledAt(null); setCustomDate(''); }}>
+                <Ionicons name="close" size={14} color={Colors.text.tertiary} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.dateHint}>No date set — you can add one later</Text>
+          )}
+        </View>
+
+        {/* Invite friends */}
+        <View style={styles.field}>
+          <Text style={[styles.fieldLabel, friendError ? styles.fieldLabelError : null]}>
+            Invite friends {selectedFriends.length > 0 ? `(${selectedFriends.length})` : ''}
+          </Text>
+          {friendError ? <Text style={styles.fieldError}>{friendError}</Text> : null}
+
+          {friends.length === 0 ? (
+            <View style={styles.noFriendsBox}>
+              <Text style={styles.noFriendsText}>
+                You need friends to invite! Go to the Friends tab to add some first.
+              </Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/friends')}>
+                <Text style={styles.noFriendsLink}>Go to Friends →</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.friendsGrid}>
+              {friends.map((friend) => {
+                const selected = !!selectedFriends.find((f) => f.id === friend.id);
+                return (
+                  <TouchableOpacity
+                    key={friend.id}
+                    style={[styles.friendChip, selected && styles.friendChipSelected]}
+                    onPress={() => toggleFriend(friend)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.friendChipAvatar}>
+                      <Avatar
+                        uri={friend.avatar_url}
+                        name={friend.full_name ?? friend.username}
+                        size={32}
+                      />
+                      {selected ? (
+                        <View style={styles.selectedCheck}>
+                          <Ionicons name="checkmark" size={10} color="#fff" />
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text
+                      style={[styles.friendChipName, selected && styles.friendChipNameSelected]}
+                      numberOfLines={1}
+                    >
+                      {friend.username}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </View>
 
         <Button
-          label="Create plan & invite"
+          label={saving ? 'Creating...' : 'Create plan & send invites'}
           onPress={handleCreate}
           loading={saving}
           style={styles.createBtn}
@@ -212,8 +300,12 @@ const styles = StyleSheet.create({
   },
   scroll: {
     padding: Spacing.md,
+    paddingBottom: Spacing.xxl,
   },
   sourceTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
     backgroundColor: Colors.primaryLight,
     borderRadius: BorderRadius.md,
     padding: Spacing.sm,
@@ -223,60 +315,104 @@ const styles = StyleSheet.create({
     fontSize: Typography.sizes.sm,
     color: Colors.primary,
     fontWeight: Typography.weights.medium,
+    flex: 1,
   },
-  label: {
+  field: {
+    marginBottom: Spacing.lg,
+  },
+  fieldLabel: {
     fontSize: Typography.sizes.sm,
     fontWeight: Typography.weights.semibold,
-    color: Colors.text.secondary,
-    marginBottom: Spacing.xs,
-    marginTop: Spacing.md,
+    color: Colors.text.primary,
+    marginBottom: Spacing.sm,
   },
-  input: {
-    borderWidth: 1,
+  fieldLabelError: {
+    color: Colors.error,
+  },
+  fieldError: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.error,
+    marginBottom: Spacing.xs,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  presetChip: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    backgroundColor: Colors.background.primary,
+  },
+  presetChipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+  },
+  presetText: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.medium,
+    color: Colors.text.secondary,
+  },
+  presetTextActive: {
+    color: Colors.primary,
+    fontWeight: Typography.weights.semibold,
+  },
+  customDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    borderWidth: 1.5,
     borderColor: Colors.border,
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
+    backgroundColor: Colors.background.primary,
+    marginBottom: Spacing.xs,
+  },
+  customDateInput: {
+    flex: 1,
     fontSize: Typography.sizes.md,
     color: Colors.text.primary,
-    backgroundColor: Colors.background.primary,
-    minHeight: 48,
+    height: 32,
   },
-  categoryRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  categoryChip: {
+  datePreview: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background.primary,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    paddingVertical: 4,
   },
-  categoryChipActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primary,
-  },
-  categoryEmoji: { fontSize: 16 },
-  categoryText: {
+  datePreviewText: {
+    flex: 1,
     fontSize: Typography.sizes.sm,
-    color: Colors.text.secondary,
+    color: Colors.success,
     fontWeight: Typography.weights.medium,
   },
-  categoryTextActive: {
+  dateHint: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.text.tertiary,
+    paddingVertical: 4,
+  },
+  noFriendsBox: {
+    backgroundColor: Colors.background.primary,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: Spacing.sm,
+  },
+  noFriendsText: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.secondary,
+    lineHeight: 20,
+  },
+  noFriendsLink: {
+    fontSize: Typography.sizes.sm,
     color: Colors.primary,
     fontWeight: Typography.weights.semibold,
-  },
-  noFriends: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.text.tertiary,
-    fontStyle: 'italic',
-    marginTop: Spacing.xs,
   },
   friendsGrid: {
     flexDirection: 'row',
@@ -284,35 +420,46 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   friendChip: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background.primary,
-    borderWidth: 1,
+    gap: 6,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
     borderColor: Colors.border,
+    backgroundColor: Colors.background.primary,
+    width: 80,
   },
   friendChipSelected: {
-    backgroundColor: Colors.primaryLight,
     borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
   },
-  friendChipText: {
-    fontSize: Typography.sizes.sm,
+  friendChipAvatar: {
+    position: 'relative',
+  },
+  selectedCheck: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  friendChipName: {
+    fontSize: 11,
     color: Colors.text.secondary,
+    fontWeight: Typography.weights.medium,
+    textAlign: 'center',
   },
-  friendChipTextSelected: {
+  friendChipNameSelected: {
     color: Colors.primary,
     fontWeight: Typography.weights.semibold,
   },
-  checkmark: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.primary,
-    fontWeight: Typography.weights.bold,
-  },
   createBtn: {
-    marginTop: Spacing.xl,
-    marginBottom: Spacing.xl,
+    marginTop: Spacing.sm,
   },
 });

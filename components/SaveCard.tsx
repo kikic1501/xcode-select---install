@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
-import { Colors, Spacing, BorderRadius, Typography, CategoryEmoji } from '@/constants';
+import { Colors, Spacing, BorderRadius, Typography, CategoryEmoji, CategoryLabel } from '@/constants';
 import type { Save } from '@/types';
 
 interface SaveCardProps {
@@ -11,24 +11,33 @@ interface SaveCardProps {
 
 export function SaveCard({ save, onPress, onMakePlan }: SaveCardProps) {
   return (
-    <TouchableOpacity onPress={onPress} style={styles.card} activeOpacity={0.9}>
-      {save.image_url ? (
-        <Image source={{ uri: save.image_url }} style={styles.image} />
-      ) : (
-        <View style={[styles.image, styles.placeholder]}>
-          <Text style={styles.emoji}>{CategoryEmoji[save.category]}</Text>
+    <TouchableOpacity onPress={onPress} style={styles.card} activeOpacity={0.85}>
+      {/* Image / placeholder */}
+      <View style={styles.imageContainer}>
+        {save.image_url ? (
+          <Image source={{ uri: save.image_url }} style={styles.image} />
+        ) : (
+          <View style={[styles.image, styles.imagePlaceholder]}>
+            <Text style={styles.placeholderEmoji}>{CategoryEmoji[save.category]}</Text>
+          </View>
+        )}
+        <View style={styles.categoryPill}>
+          <Text style={styles.categoryPillText}>
+            {CategoryEmoji[save.category]} {CategoryLabel[save.category]}
+          </Text>
         </View>
-      )}
-      <View style={styles.content}>
-        <View style={styles.row}>
-          <Text style={styles.category}>{CategoryEmoji[save.category]} {save.category}</Text>
-        </View>
+      </View>
+
+      <View style={styles.body}>
         <Text style={styles.title} numberOfLines={2}>{save.title}</Text>
         {save.location ? (
-          <Text style={styles.location} numberOfLines={1}>📍 {save.location}</Text>
+          <Text style={styles.meta} numberOfLines={1}>📍 {save.location}</Text>
         ) : null}
-        <TouchableOpacity style={styles.planButton} onPress={onMakePlan}>
-          <Text style={styles.planButtonText}>Make it a plan →</Text>
+        {save.notes ? (
+          <Text style={styles.notes} numberOfLines={2}>{save.notes}</Text>
+        ) : null}
+        <TouchableOpacity style={styles.planCta} onPress={onMakePlan} activeOpacity={0.7}>
+          <Text style={styles.planCtaText}>Make it a plan  →</Text>
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
@@ -40,53 +49,76 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background.primary,
     borderRadius: BorderRadius.lg,
     marginBottom: Spacing.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
-    overflow: 'hidden',
+  },
+  imageContainer: {
+    position: 'relative',
   },
   image: {
     width: '100%',
-    height: 160,
+    height: 148,
   },
-  placeholder: {
+  imagePlaceholder: {
     backgroundColor: Colors.background.tertiary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emoji: {
-    fontSize: 48,
+  placeholderEmoji: {
+    fontSize: 44,
   },
-  content: {
-    padding: Spacing.md,
+  categoryPill: {
+    position: 'absolute',
+    top: Spacing.sm,
+    left: Spacing.sm,
+    backgroundColor: 'rgba(255,255,255,0.93)',
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
-  },
-  category: {
+  categoryPillText: {
     fontSize: Typography.sizes.xs,
-    color: Colors.text.secondary,
-    textTransform: 'capitalize',
+    fontWeight: Typography.weights.semibold,
+    color: Colors.text.primary,
+  },
+  body: {
+    padding: Spacing.md,
+    gap: 6,
   },
   title: {
     fontSize: Typography.sizes.lg,
-    fontWeight: Typography.weights.semibold,
+    fontWeight: Typography.weights.bold,
     color: Colors.text.primary,
-    marginBottom: Spacing.xs,
+    lineHeight: 24,
   },
-  location: {
+  meta: {
     fontSize: Typography.sizes.sm,
     color: Colors.text.secondary,
-    marginBottom: Spacing.sm,
   },
-  planButton: {
+  notes: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.secondary,
+    fontStyle: 'italic',
+    lineHeight: 18,
+  },
+  planCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
     alignSelf: 'flex-start',
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
   },
-  planButtonText: {
+  planCtaText: {
     fontSize: Typography.sizes.sm,
     fontWeight: Typography.weights.semibold,
     color: Colors.primary,

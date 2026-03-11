@@ -11,9 +11,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/useAuth';
 import { useFriends } from '@/hooks/useFriends';
 import { Avatar } from '@/components/Avatar';
+import { EmptyState } from '@/components/EmptyState';
+import { SectionHeader } from '@/components/SectionHeader';
 import { Colors, Spacing, Typography, BorderRadius } from '@/constants';
 import type { Profile, Friendship } from '@/types';
 
@@ -25,6 +28,7 @@ export default function FriendsScreen() {
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
 
   async function handleSearch(text: string) {
     setQuery(text);
@@ -34,104 +38,85 @@ export default function FriendsScreen() {
     }
     setSearching(true);
     try {
-      const results = await search(text);
-      // Exclude self and existing friends
       const friendIds = new Set(friends.map((f) => f.id));
-      setSearchResults(
-        results.filter((p) => p.id !== user?.id && !friendIds.has(p.id))
-      );
+      const results = await search(text);
+      setSearchResults(results.filter((p) => p.id !== user?.id && !friendIds.has(p.id)));
     } finally {
       setSearching(false);
     }
   }
 
   async function handleAddFriend(profile: Profile) {
+    setAddingId(profile.id);
     try {
       await addFriend(profile.id);
-      Alert.alert('Request sent', `Friend request sent to ${profile.username}!`);
+      Alert.alert('Request sent!', `Friend request sent to @${profile.username}.`);
       setQuery('');
       setSearchResults([]);
     } catch (e: any) {
       Alert.alert('Error', e.message);
+    } finally {
+      setAddingId(null);
     }
-  }
-
-  function renderFriendRequest({ item }: { item: Friendship }) {
-    const requester = item.requester as any as Profile;
-    return (
-      <View style={styles.requestCard}>
-        <Avatar uri={requester?.avatar_url} name={requester?.full_name ?? requester?.username} size={44} />
-        <View style={styles.requestInfo}>
-          <Text style={styles.name}>{requester?.full_name ?? requester?.username}</Text>
-          <Text style={styles.username}>@{requester?.username}</Text>
-        </View>
-        <View style={styles.requestActions}>
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.declineBtn]}
-            onPress={() => respond(item.id, 'declined')}
-          >
-            <Text style={styles.declineBtnText}>Ignore</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.acceptBtn]}
-            onPress={() => respond(item.id, 'accepted')}
-          >
-            <Text style={styles.acceptBtnText}>Accept</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  function renderFriend({ item }: { item: Profile }) {
-    return (
-      <View style={styles.friendRow}>
-        <Avatar uri={item.avatar_url} name={item.full_name ?? item.username} size={44} />
-        <View style={styles.friendInfo}>
-          <Text style={styles.name}>{item.full_name ?? item.username}</Text>
-          <Text style={styles.username}>@{item.username}</Text>
-        </View>
-      </View>
-    );
   }
 
   const isSearching = query.length > 0;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Friends</Text>
+        {friends.length > 0 && (
+          <View style={styles.countBadge}>
+            <Text style={styles.countText}>{friends.length}</Text>
+          </View>
+        )}
       </View>
 
-      {/* Search */}
-      <View style={styles.searchContainer}>
+      {/* Search bar */}
+      <View style={styles.searchRow}>
+        <Ionicons name="search-outline" size={18} color={Colors.text.tertiary} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search by username..."
+          placeholder="Find friends by username..."
           placeholderTextColor={Colors.text.tertiary}
           value={query}
           onChangeText={handleSearch}
           autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
         />
-        {searching && <ActivityIndicator style={styles.searchSpinner} color={Colors.primary} />}
+        {searching && <ActivityIndicator size="small" color={Colors.primary} style={styles.searchSpinner} />}
+        {query.length > 0 && !searching && (
+          <TouchableOpacity onPress={() => { setQuery(''); setSearchResults([]); }}>
+            <Ionicons name="close-circle" size={18} color={Colors.text.tertiary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {isSearching ? (
+        /* Search results */
         <FlatList
           data={searchResults}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <View style={styles.friendRow}>
+            <View style={styles.row}>
               <Avatar uri={item.avatar_url} name={item.full_name ?? item.username} size={44} />
-              <View style={styles.friendInfo}>
-                <Text style={styles.name}>{item.full_name ?? item.username}</Text>
-                <Text style={styles.username}>@{item.username}</Text>
+              <View style={styles.rowInfo}>
+                <Text style={styles.rowName}>{item.full_name ?? item.username}</Text>
+                <Text style={styles.rowSub}>@{item.username}</Text>
               </View>
               <TouchableOpacity
-                style={styles.addBtn}
+                style={[styles.actionBtn, styles.addBtn]}
                 onPress={() => handleAddFriend(item)}
+                disabled={addingId === item.id}
               >
-                <Text style={styles.addBtnText}>Add</Text>
+                {addingId === item.id ? (
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                ) : (
+                  <Text style={styles.addBtnText}>Add</Text>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -143,32 +128,69 @@ export default function FriendsScreen() {
           contentContainerStyle={styles.list}
         />
       ) : (
+        /* Friends list + pending requests */
         <FlatList
           data={friends}
           keyExtractor={(item) => item.id}
-          renderItem={renderFriend}
+          renderItem={({ item }: { item: Profile }) => (
+            <View style={styles.row}>
+              <Avatar uri={item.avatar_url} name={item.full_name ?? item.username} size={44} />
+              <View style={styles.rowInfo}>
+                <Text style={styles.rowName}>{item.full_name ?? item.username}</Text>
+                <Text style={styles.rowSub}>@{item.username}</Text>
+              </View>
+              <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+            </View>
+          )}
           ListHeaderComponent={
             pendingRequests.length > 0 ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  Requests ({pendingRequests.length})
-                </Text>
-                {pendingRequests.map((req) => renderFriendRequest({ item: req }))}
+              <View style={styles.requestsSection}>
+                <SectionHeader title="Requests" count={pendingRequests.length} />
+                {pendingRequests.map((req: Friendship) => {
+                  const requester = req.requester as any as Profile;
+                  return (
+                    <View key={req.id} style={styles.requestCard}>
+                      <Avatar
+                        uri={requester?.avatar_url}
+                        name={requester?.full_name ?? requester?.username}
+                        size={44}
+                      />
+                      <View style={styles.rowInfo}>
+                        <Text style={styles.rowName}>
+                          {requester?.full_name ?? requester?.username}
+                        </Text>
+                        <Text style={styles.rowSub}>@{requester?.username}</Text>
+                      </View>
+                      <View style={styles.requestActions}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.ignoreBtn]}
+                          onPress={() => respond(req.id, 'declined')}
+                        >
+                          <Text style={styles.ignoreBtnText}>Ignore</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.acceptBtn]}
+                          onPress={() => respond(req.id, 'accepted')}
+                        >
+                          <Text style={styles.acceptBtnText}>Accept</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             ) : null
           }
           ListEmptyComponent={
             pendingRequests.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyEmoji}>👥</Text>
-                <Text style={styles.emptyTitle}>No friends yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Search for friends by username above.
-                </Text>
-              </View>
+              <EmptyState
+                emoji="👥"
+                title="No friends yet"
+                subtitle="Search for friends by their username and send them a request."
+              />
             ) : null
           }
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, friends.length === 0 && pendingRequests.length === 0 && styles.listEmpty]}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={Colors.primary} />
           }
@@ -184,8 +206,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background.secondary,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
     backgroundColor: Colors.background.primary,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
@@ -195,53 +221,81 @@ const styles = StyleSheet.create({
     fontWeight: Typography.weights.bold,
     color: Colors.text.primary,
   },
-  searchContainer: {
+  countBadge: {
+    backgroundColor: Colors.background.tertiary,
+    borderRadius: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countText: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+    color: Colors.text.secondary,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     backgroundColor: Colors.background.primary,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  searchIcon: {
+    marginRight: 2,
   },
   searchInput: {
     flex: 1,
     height: 40,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.full,
-    paddingHorizontal: Spacing.md,
-    fontSize: Typography.sizes.sm,
+    fontSize: Typography.sizes.md,
     color: Colors.text.primary,
-    backgroundColor: Colors.background.tertiary,
   },
   searchSpinner: {
-    marginLeft: Spacing.sm,
+    marginLeft: 4,
   },
   list: {
     padding: Spacing.md,
+  },
+  listEmpty: {
     flexGrow: 1,
   },
-  section: {
-    marginBottom: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.text.primary,
-    marginBottom: Spacing.sm,
+  requestsSection: {
+    marginBottom: Spacing.lg,
   },
   requestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.background.primary,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: Colors.background.primary,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
   },
-  requestInfo: {
+  rowInfo: {
     flex: 1,
     marginLeft: Spacing.sm,
+  },
+  rowName: {
+    fontSize: Typography.sizes.md,
+    fontWeight: Typography.weights.semibold,
+    color: Colors.text.primary,
+  },
+  rowSub: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.secondary,
+    marginTop: 1,
   },
   requestActions: {
     flexDirection: 'row',
@@ -249,14 +303,16 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: BorderRadius.full,
+    minWidth: 60,
+    alignItems: 'center',
   },
-  declineBtn: {
+  ignoreBtn: {
     backgroundColor: Colors.background.tertiary,
   },
-  declineBtnText: {
-    fontSize: Typography.sizes.xs,
+  ignoreBtnText: {
+    fontSize: Typography.sizes.sm,
     color: Colors.text.secondary,
     fontWeight: Typography.weights.medium,
   },
@@ -264,36 +320,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
   },
   acceptBtnText: {
-    fontSize: Typography.sizes.xs,
+    fontSize: Typography.sizes.sm,
     color: '#fff',
     fontWeight: Typography.weights.semibold,
   },
-  friendRow: {
-    backgroundColor: Colors.background.primary,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  friendInfo: {
-    flex: 1,
-    marginLeft: Spacing.sm,
-  },
-  name: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.text.primary,
-  },
-  username: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.text.secondary,
-  },
   addBtn: {
     backgroundColor: Colors.primaryLight,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.full,
   },
   addBtnText: {
     fontSize: Typography.sizes.sm,
@@ -305,24 +337,5 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     marginTop: Spacing.xl,
     fontSize: Typography.sizes.md,
-  },
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.xxl,
-  },
-  emptyEmoji: { fontSize: 64, marginBottom: Spacing.md },
-  emptyTitle: {
-    fontSize: Typography.sizes.xl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.text.primary,
-    marginBottom: Spacing.sm,
-  },
-  emptySubtitle: {
-    fontSize: Typography.sizes.md,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    paddingHorizontal: Spacing.xl,
   },
 });
